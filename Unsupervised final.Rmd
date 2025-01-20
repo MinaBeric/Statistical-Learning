@@ -1,0 +1,487 @@
+---
+title: "Statistical learning- Unsupervised project"
+author: "Mina Beric"
+date: "2024-05-10"
+output: html_document
+---
+Load the libraries
+```{r setup, include=FALSE}
+library(tidyverse)
+library(pastecs)
+library(readr)
+library(ggplot2) 
+library(factoextra) 
+library(gridExtra) 
+library(knitr)
+library(dplyr) 
+library(tidyr) 
+library(caret)
+library(reshape2)
+library(corrplot)
+library(gplots)
+library(preprocessCore)
+library(summarytools)
+library(ggbiplot)
+library(cluster)
+```
+
+Load the dataset 
+```{r}
+dataset<- read.csv("C:/Users/beric/Downloads/tarvel+review+ratings/google_review_ratings.csv")
+glimpse(dataset)
+```
+Get rid of unecessary variables and rename the columsn to be more interpretable
+```{r}
+
+dataset<-dataset[,-1]
+dataset <- dataset[, -ncol(dataset)]
+
+
+new_names <- c('churches', 'resorts', 'beaches', 'parks', 'theatres',
+               'museums', 'malls', 'zoo', 'restaurants','pubs_bars',
+               'local_services','burger_pizza', 'hotels','juice_bars', 
+               'art_galleries', 'dance_clubs', 'swimming_pools',
+               'gyms', 'bakeries', 'beauty_spas', 'cafes', 'view_points',
+               'monuments','gardens')
+colnames(dataset) <- new_names
+glimpse(dataset)
+attach(dataset)
+```
+Change into numeric variable local_service
+
+```{r}
+dataset$local_services<-as.numeric(dataset$local_services)
+```
+```{r}
+#Check for missing values
+
+missing_values_count <- colSums(is.na(dataset))
+
+total_missing_values <- sum(missing_values_count)
+
+print(total_missing_values)
+```
+```{r}
+
+dataset_clean <- na.omit(dataset)
+anyNA(dataset_clean)
+
+```
+```{r}
+#Check for duplicates
+
+sum(duplicated(dataset_clean)) 
+```
+```{r}
+#Get rid of them
+dataset_clean<-distinct(dataset_clean)
+tail(dataset_clean)
+```
+EXPLANATORY DATA ANALYSIS
+
+```{r}
+summary_stats <- summarytools::descr(dataset_clean, round.digits = 2, transpose = TRUE)
+summary_stats
+```
+```{r}
+summary(dataset_clean)
+```
+```{r}
+# Reshape the data into long format
+long_dataset <- tidyr::gather(dataset_clean, key, value)
+
+# Plotting boxplots for each variable
+ggplot(long_dataset, aes(x = key, y = value)) + 
+  geom_boxplot(fill="skyblue", color="black", outlier.colour = "deepskyblue") + 
+  facet_wrap(~key, scales = 'free')+
+  theme_minimal()
+
+#There are a lot of outliers, we need to handle this problem before clustering. 
+
+#But first let's analyse more in detail our variables: 
+
+ggplot(dataset_clean, aes(x = churches)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Churches", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = resorts)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Resorts", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = beaches)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Beaches", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = parks)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Parks", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = theatres)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Theaters", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = museums)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Museums", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = malls)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Malls", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = zoo)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Zoos", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = restaurants)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Restaurants", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+
+ggplot(dataset_clean, aes(x = pubs_bars)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Pubs_bars", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = local_services)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Local_services", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = burger_pizza)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Burger pizza", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = hotels)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Hotels", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = juice_bars)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Juicy bars", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = art_galleries)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Art galleries", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = dance_clubs)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Dance clubs", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = swimming_pools)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Swimming pools", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = gyms)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Gyms", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = bakeries)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Bakeries", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = beauty_spas)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Beauty spas", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = cafes)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Cafes", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = view_points)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Viewv points", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = monuments)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Monuments", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+ggplot(dataset_clean, aes(x = gardens)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs( x = "Gardens", y = "Frequency")+
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_line(color = "grey", linetype = "dashed"),
+        panel.grid
+        
+
+```
+Melt the dataframe to see the overall ratings distribution
+```{r}
+# Melt the dataframe
+df_melted <- melt(dataset_clean)
+
+# Create histogram
+histplot_rating <- ggplot(data = df_melted, aes(x = value)) +
+  geom_histogram(color = "black", fill = "lightgreen", bins = 30, alpha = 0.8) +
+  labs(x = "Rating", y = "Count", title = "Ratings distribution") +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 14, face = "bold"), plot.title = element_text(size = 18, face = "bold"))
+
+# Display the plot
+print(histplot_rating)
+```
+Then correlation between the variables
+First let's see the heat map
+```{r}
+corr <- cor(dataset_clean)
+
+mask <- matrix(FALSE, nrow = ncol(corr), ncol = ncol(corr))
+mask[upper.tri(mask)] <- TRUE
+
+#Heatmap
+ggplot(data = melt(corr), aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "lightyellow", high = "darkblue") +
+  labs(title = "Heatmap", x = "", y = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank(),
+        legend.position = "bottom")
+
+corrplot(corr,type = "upper", method = "number", tl.col = "black",tl.srt = 45, tl.cex = 0.8, color = colorRampPalette(c("blue", "white", "red")))
+
+
+#Cluster map
+heatmap(corr, col = colorRampPalette(c("lightyellow", "darkblue"))(100), scale = "none", symm = TRUE)
+
+
+```
+Then Scaling the data: 
+```{r}
+dataset_scaled<-scale(dataset_clean)
+
+```
+
+PRINCIPAL COMPONENT ANALYSIS
+```{r}
+pcaCharts <- function(x) {
+  x.var <- x$sdev ^ 2
+  x.pvar <- x.var/sum(x.var)
+  print("proportions of variance:")
+  print(x.pvar)
+  
+  par(mfrow=c(2,2))
+  plot(x.pvar,xlab="Principal component", ylab="Proportion of variance explained", ylim=c(0,1), type='b')
+  plot(cumsum(x.pvar),xlab="Principal component", ylab="Cumulative Proportion of variance explained", ylim=c(0,1), type='b')
+  screeplot(x)
+  screeplot(x,type="l")
+  par(mfrow=c(1,1))
+}
+
+# Perform PCA on the cleaned and imputed data
+pca_result <- prcomp(dataset_scaled,center=TRUE, scale.=FALSE)
+var <- get_pca_var(pca_result)
+var$contrib   #Variables contributions 
+
+kdf <- data.frame(pca_result$x[,1:2]) #First 2 dimensions 
+kdf
+
+# Print the summary of the PCA result
+summary(pca_result)
+
+pcaCharts(pca_result)
+
+#biplot
+biplot(pca_result, scale=0,cex=.7, )
+pca_result$rotation=-pca_result$rotation
+pca_result$x=-pca_result$x
+biplot(pca_result, scale=0)
+
+#variables
+fviz_pca_var(pca_result)
+
+#eigen values
+eig<- get_eigenvalue(pca_result)
+
+#scree plot explained variance
+x11()
+fviz_eig(pca_result, addlabels = TRUE)+theme_classic()
+
+#cumulative explained variance
+cs = cumsum(pca_result$sdev^2 / sum(pca_result$sdev^2))
+cs
+x11()
+plot(cs, type="b", pch = 19,
+     xlab = "# Dimensions", ylab = "% Variability", col = "black") 
+
+abline(h = 0.95, col = "red", lty = 1)
+
+
+text(10, 0.9, label = "95% cut-off threshold", col = "red", cex = 1.6)  
+#let's secure 95% percent of explained variability 
+
+n_components <- which.max(cs >= 0.95)
+n_components #21 components 
+
+dim1<-fviz_contrib(pca_result,choice="var",axes=1)
+dim2<-fviz_contrib(pca_result,choice="var",axes=2)
+x11()
+grid.arrange(dim1, dim2, ncol = 2)
+
+
+rho <- cor(dataset_scaled)
+round(rho,3)
+
+eigen(rho)
+
+screeplot(princomp(dataset_scaled, cor=T))
+```
+K-MEANS CLUSTERING
+```{r}
+# Define cluster numbers to test
+cl_list <- 1:10
+
+# List to store inertia values
+inertia_list <- vector(length = length(cl_list))
+
+# Loop through cluster numbers
+for (k in seq_along(cl_list)) {
+  n_clusters <- cl_list[k]
+  
+  
+  pca <- prcomp(dataset_scaled, center = TRUE, scale = FALSE)  
+  data_reduced <- pca$x
+  
+  # KMeans clustering
+  kmeans_model <- kmeans(data_reduced, centers = n_clusters, nstart = 10) 
+  
+  # Extract inertia (within-cluster sum of squares)
+  inertia_list[k] <- sum(kmeans_model$withinss)
+}
+
+# Plot inertia vs number of clusters
+plot(cl_list, inertia_list, type = "o", col = "black", xlab = "Number of Clusters", ylab = "Inertia")
+#ELBOW AT THE 4TH CLUSTER 
+
+# Set the number of clusters
+k <- 4
+
+# Run k-means clustering
+kmeans_result <- kmeans(dataset_scaled, centers = k)
+
+# Get cluster labels
+clusterNames <- kmeans_result$cluster
+
+# Perform PCA
+pca_result <- prcomp(dataset_scaled, center = TRUE, scale. = FALSE)
+
+# Get the first two principal components
+X_r <- pca_result$x[, 1:2]
+
+# Plot the clusters
+plot(X_r, col = clusterNames, pch = 19,
+     main = "Google dataset clusters using PCA")
+legend("topright", legend = unique(clusterNames), col = 1:k, pch = 19, title = "Cluster")
+
+```
+```{r}
+# Convert clusterNames to a list
+people <- as.list(clusterNames)
+
+# Initialize lists to store indices of points in each cluster
+zero <- c()
+one <- c()
+two <- c()
+three <- c()
+
+# Loop through data and split points based on their clusters
+for (i in seq_along(people)) {
+  if (people[[i]] == 1) {
+    zero <- c(zero, i)
+  } else if (people[[i]] == 2) {
+    one <- c(one, i)
+  } else if (people[[i]] == 3) {
+    two <- c(two, i)
+  } else {
+    three <- c(three, i)
+  }
+}
+
+
+# Initialize a list to store the mean values for each cluster
+mean_values <- list()
+
+# Loop through each cluster
+for (i in 1:k) {
+  # Get the indices of points in the current cluster
+  cluster_indices <- which(clusterNames == i)
+  
+  # Compute the mean of the rows corresponding to the current cluster
+  mean_values[[i]] <- round(colMeans(dataset_scaled[cluster_indices, , drop = FALSE]), 4)
+}
+
+# Print the mean ratings for each cluster
+for (i in 1:k) {
+  cat("Cluster", i, ":", "\n")
+  print(mean_values[[i]])
+  cat("\n")
+}
+
+```
+
