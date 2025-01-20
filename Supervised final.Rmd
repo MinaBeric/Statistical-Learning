@@ -1,0 +1,939 @@
+---
+title: "Statistical Learning- Supervised project"
+author: "Mina Beric"
+date: "2024-05-10"
+output: html_document
+---
+
+IMPORT REQUIRED LIBRARIES
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(patchwork)
+library(corrplot)
+library(knitr)
+library(superml)
+library(caret)
+library(magrittr)
+library(nnet)
+library(MLmetrics)
+library(DAAG)
+library(party)
+library(rpart)
+library(rpart.plot)
+library(mlbench)
+library(pROC)
+library(tree)
+library(car)
+library(glmnet)
+library(randomForest)
+library(mgcv)
+library(adabag)
+library(gtsummary)
+```
+
+```{r cars}
+data1=read.csv("C:/Users/beric/Downloads/archive/ObesityDataSet_raw_and_data_sinthetic.csv", sep=",")
+data1
+str(data1)
+glimpse(data1)
+summary(data1)
+```
+
+In this dataset we have 2111 observations and 17 variables,
+
+Data cleaning and pre processing
+
+Finding null values
+
+```{r pressure, echo=FALSE}
+anyNA(data1)
+```
+
+no null values
+
+Rename the attributes to become more intuitive
+```{r}
+data1<-rename(data1, High_cal_food_freq=FAVC,
+                     Veg_in_meals=FCVC,
+                     N_main_meal_daily=NCP,
+                     Snacks=CAEC,
+                     Water_daily_l= CH2O,
+                     Calory_monitor=SCC,
+                     Physical_activity_days=FAF,
+                     Tech_use_hours=TUE,
+                     Alcohol_consump=CALC,
+                     Transportation=MTRANS,
+                     Obesity_level=NObeyesdad)
+head(data1)
+```
+
+Make some changes in the dataset for visualization reasons
+```{r}
+data1 <- data1 %>%
+  mutate(Transportation = ifelse(Transportation == "Public_Transportation", "Public_transp", Transportation))
+
+```
+As this project compares the effectiveness of different classification techniques, I will transform the output variable to a binary output.
+For this problem:
+Change Obesity_level into binary for the purpose of the analysis:
+```{r}
+data1 <- data1 %>%
+  mutate(Obesity_level = case_when(Obesity_level %in% c("Normal_Weight", "Overweight_Level_I", "Overweight_Level_II", "Insufficient_Weight") ~ "ObeseNo",
+                                   Obesity_level %in% c("Obesity_Type_I", "Obesity_Type_II", "Obesity_Type_III") ~ "ObeseYes",
+                                   TRUE ~ Obesity_level  # Keep unchanged if not matching any of the above
+  ))
+
+data1<- data1 %>%
+  mutate(Obesity_level=factor(ifelse(Obesity_level=="ObeseYes",1,0))) 
+
+str(data1$Obesity_level)
+
+```
+
+See if there are some Duplicates, if yes remove them 
+```{r}
+sum(duplicated(data1)) 
+
+#Remove the duplicates
+Data1_unique<-distinct(data1)
+Data1_unique
+tail(Data1_unique)
+```
+Some records of the continuous variables exhibit an unexpected number of decimal places, the potential causes could be Data entry Errors or measurment inaccuracy. 
+Let's handle this problem by transforming them into integers:
+```{r}
+Data1_unique$Age<- as.integer(Data1_unique$Age)
+Data1_unique$Veg_in_meals<- as.integer(Data1_unique$Veg_in_meals)
+Data1_unique$N_main_meal_daily<-as.integer(Data1_unique$N_main_meal_daily)
+Data1_unique$Water_daily_l<-as.integer(Data1_unique$Water_daily_l)
+Data1_unique$Physical_activity_days<-as.integer(Data1_unique$Physical_activity_days)
+Data1_unique$Tech_use_hours<-as.integer(Data1_unique$Tech_use_hours)
+
+tail(Data1_unique)
+```
+Let's handle the categorical variables
+ 
+transform categorical variables into factorial 
+```{r}
+Data1_unique<-Data1_unique %>%
+  mutate(Gender=factor(Gender),
+         Alcohol_consump=factor(Data1_unique$Alcohol_consump, levels=c("no","Sometimes","Frequently","Always")),
+         High_cal_food_freq=factor(High_cal_food_freq),
+         Calory_monitor=factor(Calory_monitor),
+         SMOKE=factor(SMOKE),
+         family_history_with_overweight=factor(family_history_with_overweight),
+         Snacks=factor(Snacks, levels=c("no","Sometimes","Frequently","Always")),
+         Transportation=factor(Transportation))
+
+```
+let's verify the changes
+```{r}
+glimpse(Data1_unique)
+```
+UNIVARIATE ANALYSIS of the independent variables:
+```{r}
+summary(Data1_unique)
+attach(Data1_unique)
+```
+Starting from the categorical variables: 
+```{r}
+#1. Gender
+
+ggplot(Data1_unique, aes(x = Gender, fill = Gender)) +
+  geom_bar() + 
+  labs(title = "Gender Distribution", x = "Gender", y = "Count") +
+  geom_text(aes(y = ..count.. -200, 
+                label = paste0(round(prop.table(..count..),4) * 100, '%')), 
+            stat = 'count', 
+            position = position_dodge(.1), 
+            size = 3)+
+  scale_fill_manual(values = c("pink", "lightblue")) + 
+  theme(legend.position = "none")
+
+#2. Alcohol consumption
+
+ggplot(Data1_unique, aes(x = Alcohol_consump,fill=Alcohol_consump)) +
+  geom_bar() +
+  labs(title = "Distribution of Alcohol consumption habits",
+       x = "Alcohol_consump",
+       y = "Frequency") +
+  geom_text(aes(y = ..count.. -200, 
+                label = paste0(round(prop.table(..count..),4) * 100, '%')), 
+            stat = 'count', 
+            position = position_dodge(.1), 
+            size = 3)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_fill_brewer(palette="Set3")
+
+ggplot(Data1_unique, aes(x = "", fill = Alcohol_consump)) +
+  geom_bar(width = 1) +
+  coord_polar(theta = "y",start=0) +  
+  labs(title = "Distribution of Alcohol Consumption Habits",
+       fill = "Alcohol Consumption",
+       x = NULL,  
+       y = NULL) +  
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+            angle = c(-90, -90, 0, 0)) +
+  scale_fill_brewer(palette = "Set3") 
+
+
+#3. High Calory food frequency consumption
+
+ggplot(Data1_unique, aes(x = High_cal_food_freq, fill = High_cal_food_freq)) +
+  geom_bar() + 
+  labs(title = "High calory consumption frequency", x = "High calory consump", y = "Count") +
+  geom_text(aes(y = ..count.. -200, 
+                label = paste0(round(prop.table(..count..),4) * 100, '%')), 
+            stat = 'count', 
+            position = position_dodge(.1), 
+            size = 4)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_fill_manual(values = c("darkgreen", "darkred")) + 
+  theme(legend.position = "none")
+
+
+#4. Calory monitor: 
+
+ggplot(Data1_unique, aes(x = Calory_monitor, fill = Calory_monitor)) +
+  geom_bar() + 
+  labs(title = "Calory monitoring frequency", x = "Calory monitoring", y = "Count") +
+  geom_text(aes(y = ..count.. -200, 
+                label = paste0(round(prop.table(..count..),4) * 100, '%')), 
+            stat = 'count', 
+            position = position_dodge(.1), 
+            size = 4)+
+  scale_fill_manual(values = c("darkred", "darkgreen")) + 
+  theme(legend.position = "none")
+
+
+#5.Smoke: 
+
+ggplot(Data1_unique, aes(x = SMOKE, fill = SMOKE)) +
+  geom_bar() + 
+  labs(title = "Smoking distribution", x = "Smoking", y = "Count") +
+  geom_text(aes(y = ..count.. -200, 
+                label = paste0(round(prop.table(..count..),4) * 100, '%')), 
+            stat = 'count', 
+            position = position_dodge(.1), 
+            size = 4)+
+  scale_fill_manual(values = c("darkgreen", "darkred")) + 
+  theme(legend.position = "none")
+
+#6. Family history of being overweight: 
+
+ggplot(Data1_unique, aes(x = family_history_with_overweight, fill = family_history_with_overweight)) +
+  geom_bar() + 
+  labs(title = "Family history of being overweight frequency", x = "Family history overweight", y = "Count") +
+  geom_text(aes(y = ..count.. -200, 
+                label = paste0(round(prop.table(..count..),4) * 100, '%')), 
+            stat = 'count', 
+            position = position_dodge(.1), 
+            size = 4)+
+  scale_fill_manual(values = c("darkgreen", "darkred")) + 
+  theme(legend.position = "none")
+
+
+#7. Snacks
+
+ggplot(Data1_unique, aes(x = Snacks, fill = Snacks)) +
+  geom_bar() + 
+  labs(title = "Snacking between meals", x = "Snacking", y = "Count") +
+  geom_text(aes(y = ..count.. -200, 
+                label = paste0(round(prop.table(..count..),4) * 100, '%')), 
+            stat = 'count', 
+            position = position_dodge(.1), 
+            size = 4)+
+  scale_fill_brewer(palette="Set3")+
+  theme(legend.position = "none")
+
+
+ggplot(Data1_unique, aes(x = "", fill = Snacks)) +
+  geom_bar( width = 1) +
+  coord_polar("y", start = 0, direction = -1) + 
+  labs(title="Distribution of Snacking habits",
+       fill="Snacking habits",
+       x=NULL,
+       y=NULL)+
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+            angle = c(-90,0,-330 , 0)) +
+  scale_fill_brewer(palette = "Set3") 
+  
+   
+
+#8. Transportation 
+
+ggplot(Data1_unique, aes(x = Transportation, fill = Transportation)) +
+  geom_bar() + 
+  labs(title = "Transportation frequency", x = "Transportation", y = "Count") +
+  geom_text(aes(y = ..count.. -200, 
+                label = paste0(round(prop.table(..count..),4) * 100, '%')), 
+            stat = 'count', 
+            position = position_dodge(.1), 
+            size = 4)+
+  scale_fill_brewer(palette="Set3") + 
+  theme(legend.position = "none")
+
+
+ggplot(Data1_unique, aes(x = "", fill = Transportation)) +
+  geom_bar(width = 1) +
+  coord_polar("y", start = 0, direction = -1) + 
+  labs(title="Distribution of Transportation od choice",
+       fill="Transportation",
+       x=NULL,
+       y=NULL)+
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+            angle = c(0,0,0,0,0)) +
+  scale_fill_brewer(palette = "Set3") 
+
+```
+Relations between categorical variables
+```{r}
+#Alcohol consumption vs Gender
+
+  Data1_unique %>% 
+  count(Alcohol_consump, Gender) %>%  
+  ggplot(mapping = aes(x = Alcohol_consump, y = Gender)) +
+  geom_tile(mapping = aes(fill = n))+
+    scale_fill_gradient(low="lightblue", high="darkred")
+
+  Data1_unique %>%
+    count(Alcohol_consump,Gender) 
+  
+  
+#Alcohol consumpt vs Smoke
+  
+  Data1_unique %>% 
+    count(Alcohol_consump, SMOKE) %>%  
+    ggplot(mapping = aes(x = Alcohol_consump, y = SMOKE)) +
+    geom_tile(mapping = aes(fill = n))+
+    
+    scale_fill_gradient(low = "lightblue", high = "darkred") 
+    
+  Data1_unique %>%
+    count(Alcohol_consump,SMOKE) 
+
+#Gender vs Smoke
+  
+  Data1_unique %>% 
+    count(Gender, SMOKE) %>%  
+    ggplot(mapping = aes(x = Gender, y = SMOKE)) +
+    geom_tile(mapping = aes(fill = n))+
+    scale_fill_gradient(low = "lightblue", high = "darkred") 
+  
+  Data1_unique %>%
+    count(Gender,SMOKE) #prevalebce of non smoker for both genders
+
+  
+#High calory food frequency vs Calory monitor
+  
+  Data1_unique %>% 
+    count(High_cal_food_freq, Calory_monitor) %>%  
+    ggplot(mapping = aes(x = High_cal_food_freq, y = Calory_monitor)) +
+    geom_tile(mapping = aes(fill = n))+
+    scale_fill_gradient(low = "lightblue", high = "darkred") 
+  
+  Data1_unique %>%
+    count(High_cal_food_freq,Calory_monitor)
+  
+#High calory food frequency vs Family history overweight
+  
+  Data1_unique %>% 
+    count(High_cal_food_freq, family_history_with_overweight) %>%  
+    ggplot(mapping = aes(x = High_cal_food_freq, y = family_history_with_overweight)) +
+    geom_tile(mapping = aes(fill = n))+
+    scale_fill_gradient(low = "lightblue", high = "darkred") 
+  
+  Data1_unique %>%
+    count(High_cal_food_freq,family_history_with_overweight) 
+  
+  #prevalence of people that have a high calory diet also has family history overweight
+  
+#family_history_with_overweight vs Gender
+  
+  Data1_unique %>% 
+    count(family_history_with_overweight, Gender) %>%  
+    ggplot(mapping = aes(x =family_history_with_overweight, y = Gender)) +
+    geom_tile(mapping = aes(fill = n))+
+    scale_fill_gradient(low = "lightblue", high = "darkred") 
+  
+  Data1_unique %>%
+    count(family_history_with_overweight, Gender) 
+  
+```
+Continuous variables: 
+```{r}
+#9. Age
+
+plot1 <- ggplot(Data1_unique, aes(x = Age)) +
+  geom_histogram(aes(y = ..density..), bins = 30, alpha = 0.5, fill = "green") +
+  geom_density(aes(y = ..density..), linetype = "solid", color = "darkgreen") +
+  labs(title = "Density of Age", x = "Age", y = "Density") +
+  scale_y_continuous(name = "") +
+  theme_classic()
+
+plot2 <- ggplot(Data1_unique, aes(x = Age)) +
+  geom_boxplot(aes(y = Age), notch = TRUE, color = "black") +
+  labs(title = "Boxplot of Age", x = "Age", y = "Values") +
+  theme_classic()
+
+grid.arrange(plot1, plot2, nrow = 1)
+
+#Age by Gender groups
+Data_copy<-Data1_unique
+Data_copy$age_group <- cut(Data_copy$Age, c(0,20,24,35,70), labels = c("<21","21-24","25-35",">35") )
+
+
+ggplot(Data_copy,aes(x=age_group, fill=Gender))+
+  geom_bar(col="black")+
+  facet_wrap(.~Gender)+
+  stat_count(aes(y=..count.., label=..count..), vjust=-0.5,geom="text", col="black", size=3.5)+
+  labs(x="Age Group", y = "Count", title="Age distribution", fill= "Sex")+
+  theme_minimal()+
+  theme(plot.title=element_text(face="bold",  hjust=0.5))+
+  scale_fill_manual(values=c("pink","lightblue"))
+
+#Age vs weight by gender
+ggplot(Data1_unique, aes(x = Age, y = Weight, color = Gender)) +
+  geom_point() +  
+  labs(title = "Weight vs. Age by Gender",  
+       x = "Age",  
+       y = "Weight")  
+
+ 
+#11. Veg_in_meals
+
+
+plot5<- ggplot(Data1_unique, aes(x = Veg_in_meals))+
+  geom_histogram(aes(y = ..density..),bins=3, alpha = 0.5, fill = "orange") +
+  geom_density(aes(y = ..density..), linetype = "solid", color = "red") +
+  labs(title = "Density of Vegetables in meals", x = "Veg_in_meals", y = "Density") +
+  scale_y_continuous(name = "") +
+  theme_classic()
+
+plot6<-ggplot(Data1_unique, aes(x = Veg_in_meals)) +
+  geom_boxplot(aes(y = Veg_in_meals), notch = TRUE, color = "black") +
+  labs(title = "Boxplot of Vegetables in meals", x = "Veg_in_meals", y = "Values") +
+  theme_classic()
+
+grid.arrange(plot5, plot6, nrow = 1)
+
+
+#12. N_main_meals_daily
+
+plot7<- ggplot(Data1_unique, aes(x = N_main_meal_daily)) +
+  geom_histogram(aes(y = ..density..),bins=3, alpha = 1.5, fill = "pink") +
+  geom_density(aes(y = ..density..), linetype = "solid", color = "darkviolet") +
+  labs(title = "Density of the number of main meals per day", x = "N_main_meals_daily", y = "Density") +
+  scale_y_continuous(name = "") +
+  theme_classic()
+
+plot8<-ggplot(Data1_unique, aes(x = N_main_meal_daily)) +
+  geom_boxplot(aes(y = N_main_meal_daily), notch = TRUE, color = "black") +
+  labs(title = "Boxplot of num of main meals per day", x = "N_main_meals_daily", y = "Values") +
+  theme_classic()
+
+grid.arrange(plot7, plot8, nrow = 1)
+
+#13. Water_daily_l
+
+plot9<- ggplot(Data1_unique, aes(x = Water_daily_l)) +
+  geom_histogram(aes(y = ..density..),bins=3, alpha = 0.6, fill = "blue") +
+  geom_density(aes(y = ..density..), linetype = "solid", color = "darkblue") +
+  labs(title = "Density of Water intake in liters", x = "Water_daily_l", y = "Density") +
+  scale_y_continuous(name = "") +
+  theme_classic()
+
+plot10<-ggplot(Data1_unique, aes(x = Water_daily_l)) +
+  geom_boxplot(aes(y = Water_daily_l), notch = TRUE, color = "black") +
+  labs(title = "Boxplot of Water intake ", x = "Water_daily_l", y = "Values") +
+  theme_classic()
+
+grid.arrange(plot9, plot10, nrow = 1)
+
+#14. Physical_activity_days
+
+plot11<-ggplot(Data1_unique, aes(x = Physical_activity_days, fill = Gender)) +
+  geom_histogram(bins = 4, alpha = 0.7,color="black") +  # Adjust transparency for overlapping bars
+  labs(title = "Distribution of Physical Activity Days by Gender", x = "Physical Activity Days", y = "Count") +
+  theme_minimal() +
+  scale_fill_manual(values = c("blue", "pink"))
+
+
+plot12<-ggplot(Data1_unique, aes(x = Physical_activity_days)) +
+  geom_boxplot(aes(y = Physical_activity_days), notch = TRUE, color = "black",fill="lightblue") +
+  labs(title = "Boxplot of Physical activity habits ", x = "Physical_activity_days", y = "Values") +
+  theme_classic()
+
+
+grid.arrange(plot11, plot12, nrow = 1)
+
+#14. Tech_use_hours
+
+plot13<- ggplot(Data1_unique, aes(x = Tech_use_hours, fill=Age_Category)) +
+  geom_histogram(bins=3, alpha = 0.5, color = "black") +
+  geom_density(aes(y = ..density..), linetype = "solid", color = "#ffcc00") +
+  labs(title = "Density of use of technology by Age_category ", x = "Tech_use_hours", y = "Density") +
+  scale_y_continuous(name = "") +
+  theme_minimal()
+
+
+plot14<-ggplot(Data1_unique, aes(x = Tech_use_hours)) +
+  geom_boxplot(aes(y = Tech_use_hours), notch = TRUE, color = "black",fill="lightgreen") +
+  labs(title = "Boxplot of Technology use", x = "Tech_use_hours", y = "Values") +
+  theme_classic()
+
+
+
+#Weight vs water intake by gender
+ggplot(Data1_unique, aes(x = Weight, y = Water_daily_l, color = Gender)) +
+geom_point() +  # Add points to the plot
+  labs(title = "Weight vs. Water intake by Gender",  
+       x = "Weight", 
+       y = "Water intake") 
+
+```
+```{r}
+#Correlation with the target variable
+data_numeric <- select_if(Data1_unique,is.numeric) 
+str(data_numeric)
+
+
+data_all <- cbind(data_numeric, Data1_unique$Obesity_level)
+Datacopy<- Data1_unique
+
+Datacopy$Obesity_level_numeric <- as.numeric(as.character(Datacopy$Obesity_level)) 
+correlation_with_obesity <- cor(Datacopy[, c("Age", "Height", "Weight", "Veg_in_meals", "N_main_meal_daily", 
+                                         "Water_daily_l", "Physical_activity_days", "Tech_use_hours", 
+                                         "Obesity_level_numeric")])
+
+corrplot(correlation_with_obesity,type = "upper", method = "number", tl.col = "black",tl.srt = 45, tl.cex = 0.8, color = colorRampPalette(c("blue", "white", "red"))(20))
+
+```
+Strong correlation between Weight and Height, this causes collinearity, remove Weight from the dataset 
+```{r}
+Data1_unique<-select(Data1_unique,-Weight)
+str(Data1_unique)
+```
+boxplots and histograms of numerical variables:
+```{r}
+Data1_unique %>% select(-Gender,-Alcohol_consump,-High_cal_food_freq,-Calory_monitor,-SMOKE,-family_history_with_overweight,-Snacks,-Transportation,-Obesity_level) %>% gather() %>% 
+  ggplot(aes(value)) + 
+  geom_boxplot(fill="skyblue", color="black", outlier.colour = "blue") + 
+  facet_wrap(~key, scales = 'free')+
+  theme_minimal()
+
+Data1_unique %>% select(-Gender,-Alcohol_consump,-High_cal_food_freq,-Calory_monitor,-SMOKE,-family_history_with_overweight,-Snacks,-Transportation,-Obesity_level) %>% gather() %>% 
+  ggplot(aes(value)) +
+  geom_histogram(fill="skyblue", color="black") + 
+  facet_wrap(~key, scales = 'free')+
+  theme_minimal()
+```
+Here is more clear, it seems there are possible outliers in the variables Age and Physical_activity_days.
+I further inspect to see the nature and the entity of outliers, using IQR criterion.
+```{r}
+Q1 = quantile(Age,0.25)
+Q3 = quantile(Age,0.75)
+IQR = Q3 - Q1
+lower_bound<- Q1-1.5*IQR
+upper_bound<- Q3+1.5*IQR
+outliers<-Data1_unique[Age<lower_bound | Age > upper_bound, ]
+nrow(outliers) #147 identified
+
+#for the Physical_activity_variable
+Q1p = quantile(Physical_activity_days,0.25)
+Q3p = quantile(Physical_activity_days,0.75)
+IQRp=Q3p-Q1p
+lower_bounds<- Q1p-1.5*IQRp
+upper_bounds<- Q3p+1.5*IQRp
+outliersphy<- Data1_unique[Physical_activity_days<lower_bounds | Physical_activity_days > upper_bounds, ]
+nrow(outliersphy) #75 identified
+
+#for the Height variable
+Q1h = quantile(Height,0.25)
+Q3h = quantile(Height,0.75)
+IQRh=Q3h-Q1h
+lower_bounds<- Q1h-1.5*IQRh
+upper_bounds<- Q3h+1.5*IQRh
+outliersheight<- Data1_unique[Height<lower_bounds | Height > upper_bounds, ]
+nrow(outliersheight) #Just 1
+```
+Let's study the dependent variable
+```{r}
+
+summary(Data1_unique$Obesity_level)
+
+#The distribution 
+
+ggplot(Data1_unique, aes(x = Obesity_level,fill=Obesity_level)) +
+  geom_bar() +
+  labs(title = "Distribution of Obesity Levels",
+       x = "Obesity Level",
+       y = "Frequency") +
+  geom_text(aes(y = ..count.. -200, 
+                label = paste0(round(prop.table(..count..),4) * 100, '%')), 
+            stat = 'count', 
+            position = position_dodge(.1), 
+            size = 3)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_fill_brewer(palette="Set3")
+
+
+ggplot(Data1_unique, aes(x = "", fill = Obesity_level)) +
+  geom_bar(width = 1) +
+  coord_polar("y", start = 0, direction = -1) + 
+  labs(title="Distribution of Obesity levels",
+       fill="Obesity_level",
+       x=NULL,
+       y=NULL)+
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+            ) +
+  scale_fill_brewer(palette = "Set3") 
+
+```
+```{r}
+#Obesity_level vs categorical variables
+
+categorical_cols<-c('Gender',"Alcohol_consump","High_calory_food_freq","Calory_monitor","SMOKE","family_history_with_overweight","Snacks","Transportation")
+
+O1C<-ggplot(Data1_unique, aes(x = Gender, fill = Obesity_level)) +
+  geom_histogram(stat = "count", bins = 6, alpha = 0.7) +
+  labs(title = "Obesity by Gender", x = "Gender", y = "Density") +
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+  ) +
+  scale_fill_brewer(label=c("ObeseYes","ObeseNo"),palette="Set3") +
+  theme_minimal()
+
+
+O2C<-ggplot(Data_copy, aes(x = as.factor(age_group), fill = Obesity_level)) +
+  geom_histogram(stat = "count", bins = 3, alpha = 0.7) +
+  labs(title = "Obesity by Age Category", x = "age_group", y = "Density") +
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+  ) +
+  scale_fill_brewer(label=c("ObeseNo","ObeseYes"),palette="Set3") +
+  theme_minimal()
+
+O3C<-ggplot(Data1_unique, aes(x = Alcohol_consump, fill = Obesity_level)) +
+  geom_histogram(stat = "count", bins = 3, alpha = 0.7) +
+  labs(title = "Obesity by Alcohol consumption habits", x = "Alcohol_consumpt", y = "Density") +
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+  ) +
+  scale_fill_brewer(label=c("ObeseNo","ObeseYes"),palette="Set3") +
+  theme_minimal()
+
+O4C<-ggplot(Data1_unique, aes(x = SMOKE, fill = Obesity_level)) +
+  geom_histogram(stat = "count", bins = 3, alpha = 0.7) +
+  labs(title = "Obesity by Smoking habits", x = "SMOKE", y = "Density") +
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+  ) +
+  scale_fill_brewer(label=c("ObeseNo","ObeseYes"),palette="Set3") +
+  theme_minimal()
+
+O5C<-ggplot(Data1_unique, aes(x = Transportation, fill = Obesity_level)) +
+  geom_histogram(stat = "count",alpha = 0.7) +
+  labs(title = "Obesity by Transportation", x = "Transport", y = "Density") +
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+  ) +
+  scale_fill_brewer(label=c("ObeseNo","ObeseYes"),palette="Set3") +
+  theme_minimal()
+
+O6C<-ggplot(Data1_unique, aes(x = High_cal_food_freq, fill = Obesity_level)) +
+  geom_histogram(stat = "count", alpha = 0.7) +
+  labs(title = "Obesity  by High calory food habit", x = "High_cal_food_freq", y = "Density") +
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+  ) +
+  scale_fill_brewer(label=c("ObeseNo","ObeseYes"),palette="Set3") +
+  theme_minimal()
+
+O7C<-ggplot(Data1_unique, aes(x = family_history_with_overweight, fill = Obesity_level)) +
+  geom_histogram(stat = "count",alpha = 0.7) +
+  labs(title = "Obesity  by fam history overweight", x = "family_history_with_overweight", y = "Density") +
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+  ) +
+  scale_fill_brewer(label=c("ObeseNo","ObeseYes"),palette="Set3") +
+  theme_minimal()
+
+O8C<-ggplot(Data1_unique, aes(x =Snacks, fill = Obesity_level)) +
+  geom_histogram(stat = "count",alpha = 0.7) +
+  labs(title = "Obesity by Snacking habits", x = "Snack", y = "Density") +
+  geom_text(aes(label = paste0(round(prop.table(..count..), 4) * 100, '%')), 
+            stat = 'count', 
+            position = position_stack(vjust = 0.5), 
+            size = 3,
+  ) +
+  scale_fill_brewer(label=c("ObeseNo","ObeseYes"),palette="Set3") +
+  theme_minimal()
+
+grid.arrange(O1C,O2C,O3C,O4C, nrow = 2,ncol=2)
+grid.arrange (O5C,O6C,O7C,O8C,nrow=2,ncol=2)
+
+
+#Obesity_level vs numerical variables
+
+
+numerical_vars <- c("Age", "Height","Weight" ,"Veg_in_meals", "N_main_meals_daily", 
+                    "Water_daily_l", "Physical_activity_days", "Tech_use_hours")
+
+
+
+
+O1N<-ggplot(Data1_unique, aes(x = Obesity_level, y = Age, fill = factor(Obesity_level))) +
+  geom_violin(alpha = 0.5) + 
+  labs(title = "Obesity  by Age", 
+       x = "Obesity", y = "Age") + 
+  theme_minimal()
+
+O2N<-ggplot(Data1_unique, aes(x = Obesity_level, y = Height, fill = factor(Obesity_level))) +
+  geom_violin(alpha = 0.5) + 
+  labs(title = "Obesity  by Height", 
+       x = "Obesity_level", y = "Height") +  
+  theme_minimal()
+
+#Only for EDA
+#O2Nw<-ggplot(Data1_unique, aes(x = Obesity_level, y =Weight, fill = factor(Obesity_level))) + geom_violin(alpha = 0.5) + labs(title = "Obesity  by Weight",  x = "Obesity_level", y = "Weight") +  theme_minimal()
+
+O3N<-ggplot(Data1_unique, aes(x = Obesity_level, y = Veg_in_meals, fill = factor(Obesity_level))) +
+  geom_violin(alpha = 0.5) +  
+  stat_summary(fun.y=median, geom="point", shape=23, size=2, fill="red")+
+  labs(title = "Obesity  by Vegetables in meals", 
+       x = "Obesity", y = "Vegetables in meals") + 
+  theme_minimal()
+
+O4N<-ggplot(Data1_unique, aes(x = Obesity_level, y =N_main_meal_daily, fill = factor(Obesity_level))) +
+  geom_violin(alpha = 0.5) + 
+  stat_summary(fun.y=median, geom="point", shape=23, size=2, fill="red")+
+  labs(title = "Obesity  by Number of meals daily", 
+       x = "Obesity", y = "N_main_meals_daily") +  
+  theme_minimal()
+
+
+O5N<-ggplot(Data1_unique, aes(x = Obesity_level, y = Water_daily_l, fill = factor(Obesity_level))) +
+  geom_violin(alpha = 0.5) + 
+  stat_summary(fun.y=median, geom="point", shape=23, size=2, fill="red")+
+  labs(title = "Obesity  by Water_daily_l", 
+       x = "Obesity", y = "Water_daily_l") +  
+  theme_minimal()
+
+O6N<-ggplot(Data1_unique, aes(x = Obesity_level, y =Physical_activity_days, fill = factor(Obesity_level))) +
+  geom_violin(alpha = 0.5) +  
+  stat_summary(fun.y=median, geom="point", shape=23, size=2, fill="red")+
+  labs(title = "Obesity  by Physical activity", 
+       x = "Obesity", y = "Physical_activity_days") +  
+  theme_minimal()
+
+O7N<-ggplot(Data1_unique, aes(x = Obesity_level, y = Tech_use_hours, fill = factor(Obesity_level))) +
+  geom_violin(alpha = 0.5) +  
+  labs(title = "Obesity by Technology use", 
+       x = "Obesity", y = "Tech_use_hours") +  
+  theme_minimal()
+
+
+
+grid.arrange(O1N,O2N,O7N, nrow=2,ncol=2)
+grid.arrange(O4N,O5N,O6N,O3N, nrow=2,ncol=2)
+```
+Scaling
+```{r}
+num_cols <- c('Age', 'Height', 'Veg_in_meals', 'N_main_meal_daily', 'Water_daily_l', 'Physical_activity_days', 'Tech_use_hours')
+cat_cols <- c('Gender', 'Alcohol_consump', 'High_cal_food_freq', 'Calory_monitor', 'SMOKE', 'family_history_with_overweight', 'Snacks', 'Transportation','Obesity_level')
+
+glimpse(Data1_unique)
+
+cat_var<- Data1_unique[, sapply(Data1_unique, is.factor)]
+glimpse(cat_var)
+
+# Normalize numerical columns
+last_col <- ncol(Data1_unique)  
+num_cols_except_last <- setdiff(names(Data1_unique), names(Data1_unique)[last_col])
+
+normalized_num <- Data1_unique[-ncol(Data1_unique)] %>%
+  select(all_of(num_cols)) %>%
+  scale() %>%
+  as.data.frame()
+normalized_num
+
+
+# Combine normalized numerical and encoded categorical columns
+normalized_data <- cbind(normalized_num,cat_var )
+
+# Print the head of the preprocessed data
+glimpse(normalized_data)
+```
+MODELS:
+First, 
+Divide the dataset in training and test
+```{r}
+set.seed(123)
+sample<- sample(c(TRUE,FALSE),nrow(normalized_data),replace=TRUE,prob=c(0.7,0.3))
+
+dtrain<-normalized_data[sample,]
+dtest<-normalized_data[!sample,]
+
+
+glimpse(dtrain)
+tail(dtrain)
+glimpse(dtest)
+```
+LOGISTIC REGRESSION 
+
+Train logistic regression model
+```{r}
+log_reg <- glm(Obesity_level ~Age+Gender+Height+Alcohol_consump+High_cal_food_freq+Veg_in_meals+N_main_meal_daily+Calory_monitor+SMOKE+Water_daily_l+family_history_with_overweight+Physical_activity_days+Tech_use_hours+Snacks+Transportation, data = dtrain, family = "binomial") 
+summary(log_reg)
+exp(coef(log_reg))
+results <- tbl_regression(log_reg, exponentiate=F)
+results
+# Predict on test set
+
+lr_prob=predict(log_reg,dtest,type='response')
+lr_pred=ifelse(lr_prob>0.5,1,0)
+lr_cm=confusionMatrix(as.factor(lr_pred),as.factor(dtest$Obesity_level),positive='1')
+print(lr_cm)
+lr_cm$byClass
+
+#test ROC
+test_roc = roc(dtest$Obesity_level ~ lr_prob, plot = TRUE, print.auc = TRUE)
+
+```
+let's search if there is a better model
+
+
+Due to the complexity of interpretation of the logistic model, I wanted to try some
+shrinkage methods, in hope that it gives the possibility of excluding less relevant variables.
+especially because of th large number of categorical variables
+
+LASSO
+
+
+```{r}
+#Tuning best lambda
+
+y_train=dtrain$Obesity_level
+dtrain_x <- dtrain %>%
+  dplyr::select(-c(Obesity_level))
+
+x_train=model.matrix( ~ ., dtrain_x[,])
+cv.lasso=cv.glmnet(x_train,y_train,alpha=1,family="binomial")
+plot(cv.lasso)
+print(cv.lasso$lambda.min)
+
+#Best lambda
+
+lasso=glmnet(x_train,y_train,alpha=1,family="binomial",lambda=cv.lasso$lambda.min)
+coef(lasso)
+
+#Accuracy
+
+dtest_x <- dtest %>%
+  dplyr::select(-c(Obesity_level))
+x_test=model.matrix( ~ .,dtest_x[,])
+lasso_prob=predict(lasso,x_test,type='response')
+lasso_pred=ifelse(lasso_prob>0.5,1,0)
+lasso_cm=confusionMatrix(as.factor(lasso_pred),as.factor(dtest$Obesity_level),positive='1')
+print(lasso_cm)
+```
+#The accuracy is slightly better, and I've got a more simpler model (-5 variables that are not significant for predicting the level of obesity)
+
+
+GAM (GENERALIZED ADDITIVE MODEL)
+```{r}
+obe_gam <- gam(Obesity_level ~ Gender + s(Age) + s(Height) + family_history_with_overweight + High_cal_food_freq+ Veg_in_meals + N_main_meal_daily + Snacks + SMOKE + Water_daily_l + Calory_monitor + Physical_activity_days + Tech_use_hours + Alcohol_consump + Transportation, data = dtrain, method="REML", family="binomial")
+summary(obe_gam)
+
+# predict
+
+gam_prob=predict(obe_gam,dtest,type='response')
+gam_pred=ifelse(gam_prob>0.5,1,0)
+
+#confusion matrix
+gam_cm=confusionMatrix(as.factor(gam_pred),as.factor(dtest$Obesity_level),positive='1')
+print(gam_cm)
+gam_cm$byClass
+
+#ROC CURVE
+#test ROC
+test_roc = roc(dtest$Obesity_level ~ gam_prob, plot = TRUE, print.auc = TRUE)
+```
+#accuracy of approximately 82.36% on the test data. In other words, for 82.36% of the data points, the model correctly predicted the obesity level (either obese or not obese).
+
+DECISION TREE MODEL: 
+```{r}
+large_tree=rpart(Obesity_level~., data=dtrain, method="class", model=TRUE)
+cp=which.min(large_tree$cptable[, "xerror"]) %>% large_tree$cptable[., "CP"]
+print(large_tree$cptable)
+tree=prune(large_tree,cp=cp)
+rpart.plot(tree)
+
+tree_pred=predict(tree, dtest, type='class')
+tree_cm=confusionMatrix(as.factor(tree_pred),as.factor(dtest$Obesity_level),positive='1')
+tree_cm$byClass #to see metrics, Sensitivity, Specificity, Balanced Accuracy
+print(tree_cm)
+```
+RANDOM FOREST:
+```{r}
+set.seed(777)
+dtrain$Obesity_level=as.factor(dtrain$Obesity_level)
+possible_mtrys=seq(1:8)
+for (v_mtry in possible_mtrys) {
+  class_rf=randomForest(Obesity_level~.,data=dtrain,ntree=500,mtry=v_mtry)
+  print(class_rf)
+}
+
+#number of trees
+
+set.seed(777)
+class_rf_bestmtry=randomForest(Obesity_level~.,data=dtrain,ntree=500,mtry=4)
+plot(class_rf_bestmtry)
+legend(x="topright",box.col="black",bg="white",box.lwd=2,title="err.rate",legend=c("OOB","0","1"),fill=c("black","red","green"))
+
+
+#Model and accuracy
+
+class_rf=randomForest(Obesity_level~.,data=dtrain,ntree=300,mtry=4,importance=TRUE)
+rf_predicts=predict(class_rf,dtest,type='class')
+rf_cm=confusionMatrix(as.factor(rf_predicts),as.factor(dtest$Obesity_level),positive='1')
+rf_cm
+rf_cm$byClass
+```
+let's see what are the most important variables
+```{r}
+class_rf_impvars=varImpPlot(class_rf) 
+```
+
